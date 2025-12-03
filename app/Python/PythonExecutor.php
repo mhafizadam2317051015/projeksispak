@@ -4,18 +4,37 @@ namespace App\Python;
 
 class PythonExecutor
 {
+    /**
+     * Jalankan script python dengan payload array.
+     * Mengembalikan stdout (string) atau null jika gagal.
+     */
     public function runPython(string $scriptPath, array $payload)
-{
-    $json = json_encode($payload);
+    {
+        // encode payload
+        $json = json_encode($payload, JSON_UNESCAPED_UNICODE);
 
-    // simpan sementara
-    $temp = storage_path('app/payload.json');
-    file_put_contents($temp, $json);
+        // buat file sementara di storage/app/
+        $filename = 'payload_' . time() . '_' . bin2hex(random_bytes(6)) . '.json';
+        $temp = storage_path('app/' . $filename);
 
-    // kirim path file, bukan isi JSON
-    $command = "python3 $scriptPath $temp";
+        if (false === @file_put_contents($temp, $json)) {
+            // gagal menulis file
+            return null;
+        }
 
-    return shell_exec($command);
-}
+        // gunakan escapeshellarg untuk aman
+        $scriptArg = escapeshellarg($scriptPath);
+        $fileArg = escapeshellarg($temp);
 
+        // jalankan python (pastikan python3 ada)
+        $command = "python3 $scriptArg $fileArg 2>&1";
+
+        // jalankan dan ambil output
+        $output = shell_exec($command);
+
+        // optional: hapus file sementara (jika ingin menyimpan untuk debug, jangan hapus)
+        @unlink($temp);
+
+        return $output;
+    }
 }

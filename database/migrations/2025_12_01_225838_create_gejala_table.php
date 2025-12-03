@@ -10,15 +10,17 @@ return new class extends Migration
      * Run the migrations.
      */
 
-    public function up() : void
+   public function up() : void
 {
     Schema::create('gejala', function (Blueprint $table) {
         $table->id();
         $table->string('kode', 5)->unique();
         $table->string('nama');
+        $table->string('kategori'); // <— Tambahan kolom kategori
         $table->timestamps();
     });
 }
+
 
     /**
      * Reverse the migrations.

@@ -1,37 +1,73 @@
+#!/usr/bin/env python3
 import sys
 import json
+import os
 
-# Ambil file json payload dari Laravel
-file_path = sys.argv[1]
+def safe_load(path):
+    with open(path, 'r', encoding='utf-8') as f:
+        return json.load(f)
 
-with open(file_path, "r") as file:
-    data = json.load(file)
+def main():
+    if len(sys.argv) < 2:
+        print(json.dumps({"status": False, "error": "no input file"}))
+        return
 
-selected_gejala = data["gejala"]
-rules = data["rules"]
-penyakit = data["penyakit"]
+    file_path = sys.argv[1]
 
-# Cari penyakit yang semua rule gejala terpenuhi
-$hasil = [];
+    if not os.path.exists(file_path):
+        print(json.dumps({"status": False, "error": "file not found"}))
+        return
 
-foreach ($rules as $rule) {
-    $ruleSymptoms = explode(',', $rule->gejala_kode);
-    $match = count(array_intersect($selectedSymptoms, $ruleSymptoms));
-    $total = count($ruleSymptoms);
+    try:
+        payload = safe_load(file_path)
+    except Exception as e:
+        print(json.dumps({"status": False, "error": "bad json", "msg": str(e)}))
+        return
 
-    $percentage = ($match / $total) * 100;
+    # normalize user input gejala
+    selected = payload.get("gejala", [])
+    if isinstance(selected, str):
+        selected = [s.strip() for s in selected.split(',') if s.strip()]
 
-    if ($percentage >= 50) {   // minimal 50% cocok
-        $hasil[] = [
-            'penyakit' => $rule->penyakit->nama_penyakit,
-            'persen'   => round($percentage, 2),
-        ];
-    }
-}
+    selected_set = set([s.upper().strip() for s in selected])
+    total_input = len(selected_set)
 
+    diseases = payload.get("diseases", [])
+    results = []
 
-# Print JSON hasil untuk Laravel
-print(json.dumps({
-    "status": True,
-    "hasil": hasil
-}))
+    for d in diseases:
+        kode = d.get("kode")
+        nama = d.get("nama")
+        gejala_list = d.get("gejala") or []
+
+        # normalize gejala list
+        gejala_norm = [g.upper().strip() for g in gejala_list if g]
+
+        # hitung kecocokan
+        matched = len(set(gejala_norm) & selected_set)
+
+        if matched == 0:
+            continue  # skip penyakit yang tidak cocok sama sekali
+
+        # rumus yang kamu minta:
+        # persentase = (matched / total input user) * 100
+        percent = (matched / total_input) * 100 if total_input > 0 else 0
+
+        results.append({
+            "kode": kode,
+            "nama": nama,
+            "matched": matched,
+            "total_input_user": total_input,
+            "persentase": round(percent, 2)
+        })
+
+    # sort: persentase tertinggi → gejala cocok terbanyak
+    results_sorted = sorted(results, key=lambda x: (-x["persentase"], -x["matched"]))
+
+    print(json.dumps({
+        "status": True,
+        "hasil": results_sorted
+    }))
+
+if __name__ == "__main__":
+    main()

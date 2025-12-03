@@ -11,8 +11,21 @@ class DiagnosisController extends Controller
     {
         $selectedGejala = $request->input('gejala', []);
 
-        $hasil = $service->diagnose($selectedGejala);
+        // pastikan format array dan bersih
+        if (!is_array($selectedGejala)) {
+            // form mungkin kirim string "G001,G002"
+            $selectedGejala = explode(',', (string)$selectedGejala);
+        }
+        $selectedGejala = array_filter(array_map('trim', $selectedGejala));
 
-        return view('diagnosis.hasil', compact('hasil'));
+        $hasil = $service->diagnose($selectedGejala); // akan return single result array atau null
+
+        // agar blade konsisten (kita kirim array kosong jika null)
+        if ($hasil === null) {
+            return view('diagnosis.hasil', ['hasil' => []]);
+        }
+
+        // kirim sebagai array berisi satu elemen supaya loop di blade tetap mudah
+        return view('diagnosis.hasil', ['hasil' => [$hasil]]);
     }
 }
