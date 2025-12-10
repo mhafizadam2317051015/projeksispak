@@ -30,10 +30,9 @@ def main():
         selected = [s.strip() for s in selected.split(',') if s.strip()]
 
     selected_set = set([s.upper().strip() for s in selected])
-    total_input = len(selected_set)
-
+    
     diseases = payload.get("diseases", [])
-    results = []
+    hasil = []
 
     for d in diseases:
         kode = d.get("kode")
@@ -42,6 +41,10 @@ def main():
 
         # normalize gejala list
         gejala_norm = [g.upper().strip() for g in gejala_list if g]
+        total_gejala_penyakit = len(gejala_norm)
+        
+        if total_gejala_penyakit == 0:
+            continue
 
         # hitung kecocokan
         matched = len(set(gejala_norm) & selected_set)
@@ -49,24 +52,31 @@ def main():
         if matched == 0:
             continue  # skip penyakit yang tidak cocok sama sekali
 
-        # rumus yang kamu minta:
-        # persentase = (matched / total input user) * 100
-        percent = (matched / total_input) * 100 if total_input > 0 else 0
 
-        results.append({
+        # persentase = (gejala cocok / total gejala penyakit) × 100
+        percent = (matched / total_gejala_penyakit) * 100
+
+
+        hasil.append({
             "kode": kode,
             "nama": nama,
             "matched": matched,
-            "total_input_user": total_input,
+            "total_gejala_penyakit": total_gejala_penyakit,
+            "total_input_user": len(selected_set),
             "persentase": round(percent, 2)
         })
 
-    # sort: persentase tertinggi → gejala cocok terbanyak
-    results_sorted = sorted(results, key=lambda x: (-x["persentase"], -x["matched"]))
+    # sort: persentase tertinggi → gejala cocok terbanyak → nama
+    results_sorted = sorted(hasil, 
+                          key=lambda x: (-x["persentase"], -x["matched"], x["nama"]))
 
     print(json.dumps({
         "status": True,
-        "hasil": results_sorted
+        "hasil": results_sorted,
+        "debug_info": {
+            "total_gejala_dipilih": len(selected_set),
+            "total_penyakit_dianalisis": len(hasil)
+        }
     }))
 
 if __name__ == "__main__":
