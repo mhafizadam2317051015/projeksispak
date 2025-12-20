@@ -4,12 +4,45 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Services\ExpertSystem\ForwardChainingService;
+use App\Models\Gejala;
 
 class DiagnosisController extends Controller
 {
+public function form(Request $request)
+{
+    // Prioritas 1: Ambil dari flash data (old_gejala)
+    // Prioritas 2: Ambil dari session (diagnosis_gejala)
+    // Prioritas 3: Ambil dari old input
+    
+    $selectedFromSession = [];
+    
+    // 1. Cek flash data dulu (ini untuk kasus redirect dengan warning)
+    if ($request->session()->has('old_gejala')) {
+        $selectedFromSession = $request->session()->get('old_gejala', []);
+    }
+    // 2. Cek session biasa
+    else if ($request->session()->has('diagnosis_gejala')) {
+        $selectedFromSession = $request->session()->get('diagnosis_gejala', []);
+    }
+    // 3. Cek old input
+    else if ($request->old('gejala')) {
+        $selectedFromSession = $request->old('gejala', []);
+    }
+    
+    $gejala = Gejala::orderBy('kategori')->orderBy('kode')->get();
+    
+    return view('diagnosis.form', [
+        'gejala' => $gejala,
+        'selectedFromSession' => $selectedFromSession
+    ]);
+}
+
     public function proses(Request $request, ForwardChainingService $service)
 {
     $selectedGejala = $request->input('gejala', []);
+    
+    // Simpan ke session untuk remember
+    $request->session()->put('diagnosis_gejala', $selectedGejala);
 
     // pastikan format array dan bersih
     if (!is_array($selectedGejala)) {
@@ -17,39 +50,56 @@ class DiagnosisController extends Controller
     }
     $selectedGejala = array_filter(array_map('trim', $selectedGejala));
 
-    // Ubah service untuk return semua hasil
-    $semuaHasil = $service->diagnoseAll($selectedGejala); // Method baru
+    if (empty($selectedGejala)) {
+        return redirect()->route('diagnosis.form')->with('error', 'Silakan pilih minimal satu gejala.');
+    }
+
+    // Ambil semua hasil diagnosis
+    $semuaHasil = $service->diagnoseAll($selectedGejala);
 
     if ($semuaHasil === null || empty($semuaHasil)) {
+        // SIMPAN FLASH DATA untuk gejala yang sudah dipilih
+        $request->session()->flash('old_gejala', $selectedGejala);
+        
+        return redirect()->route('diagnosis.form')
+            ->with('warning', 'Tidak ditemukan penyakit yang cocok dengan gejala yang dipilih. Silakan pilih gejala lain.')
+            ->withInput();
+    }
+
+    // Ambil hasil utama
+    $hasilUtama = $semuaHasil[0];
+    $persentaseTertinggi = $hasilUtama['persentase'] ?? 0;
+    
+    // CEK JIKA PERSENTASE < 70%
+    if ($persentaseTertinggi < 70) {
+        // SIMPAN FLASH DATA untuk gejala yang sudah dipilih
+        $request->session()->flash('old_gejala', $selectedGejala);
+        
         return view('diagnosis.hasil', [
-            'hasil' => [],
-            'multipleResults' => false,
-            'alternatifPenyakit' => []
+            'penyakit' => $hasilUtama['penyakit'] ?? 'Tidak diketahui',
+            'persentase' => $persentaseTertinggi,
+            'matched' => $hasilUtama['matched'] ?? 0,
+            'total_gejala_penyakit' => $hasilUtama['total_gejala_penyakit'] ?? 0,
+            'selected_gejala_count' => count($selectedGejala),
+            'showDiagnosis' => false,
+            'gejala_yang_dipilih' => $selectedGejala
         ]);
     }
 
-    // Cari persentase tertinggi
-    $persentaseTertinggi = $semuaHasil[0]['persentase'] ?? 0;
+    // Jika ≥ 70%, tampilkan diagnosis normal
+    $penyakitData = $this->getPenyakitData();
+    $infoPenyakit = $this->findPenyakitInfo($hasilUtama['penyakit'], $penyakitData);
+    $hasilUtama['info'] = $infoPenyakit;
     
     // Ambil semua penyakit dengan persentase sama tertinggi
     $hasilTertinggi = array_filter($semuaHasil, function($item) use ($persentaseTertinggi) {
         return $item['persentase'] == $persentaseTertinggi;
     });
     
-    // Hasil utama tetap ambil index 0
-    $hasilUtama = $semuaHasil[0];
-    
-    // Data penyakit lengkap untuk hasil utama
-    $penyakitData = $this->getPenyakitData();
-    $infoPenyakit = $this->findPenyakitInfo($hasilUtama['penyakit'], $penyakitData);
-    $hasilUtama['info'] = $infoPenyakit;
-    
-    // Tandai jika ada multiple results dengan persentase sama
     $multipleResults = count($hasilTertinggi) > 1;
     $alternatifPenyakit = [];
     
     if ($multipleResults) {
-        // Ambil alternatif selain yang utama
         foreach ($hasilTertinggi as $item) {
             if ($item['kode'] !== $hasilUtama['kode']) {
                 $alternatifPenyakit[] = [
@@ -61,14 +111,24 @@ class DiagnosisController extends Controller
         }
     }
 
+    // Hapus session setelah berhasil
+    $request->session()->forget('diagnosis_gejala');
+    
     return view('diagnosis.hasil', [
         'hasil' => [$hasilUtama],
         'multipleResults' => $multipleResults,
         'alternatifPenyakit' => $alternatifPenyakit,
-        'debug_semua_hasil' => $semuaHasil // optional untuk debugging
+        'debug_semua_hasil' => $semuaHasil,
+        'showDiagnosis' => true, // TANDAI TAMPILKAN DIAGNOSIS
+        'persentase' => $persentaseTertinggi
     ]);
 }
 
+public function reset(Request $request)
+    {
+        $request->session()->forget('diagnosis_gejala');
+        return redirect()->route('diagnosis.form');
+    }
     /**
      * Data lengkap semua penyakit
      */

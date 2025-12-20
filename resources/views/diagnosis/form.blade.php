@@ -16,6 +16,34 @@
         </div>
     </div>
 
+    <!-- Warning jika persentase rendah -->
+    @if(session('warning'))
+        <div class="alert alert-warning alert-dismissible fade show" role="alert">
+            <div class="d-flex align-items-start">
+                <i class="fas fa-exclamation-triangle me-2 mt-1 fs-4"></i>
+                <div>
+                    <h5 class="alert-heading mb-1">⚠️ Diagnosis Belum Akurat</h5>
+                    <p class="mb-1">{!! session('warning') !!}</p>
+                    @if(session('persentase'))
+                        <div class="d-flex align-items-center mt-2">
+                            <div class="progress flex-grow-1 me-2" style="height: 10px;">
+                                <div class="progress-bar bg-warning" 
+                                     style="width: {{ session('persentase') }}%">
+                                </div>
+                            </div>
+                            <small class="fw-bold">{{ session('persentase') }}%</small>
+                        </div>
+                        <p class="small mt-2 mb-0">
+                            <i class="fas fa-lightbulb text-warning me-1"></i>
+                            <strong>Tambahkan gejala lain untuk meningkatkan akurasi di atas 70%</strong>
+                        </p>
+                    @endif
+                </div>
+            </div>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    @endif
+
     <!-- Form -->
     <div class="card border-0 shadow-sm mb-3">
         <div class="card-header bg-primary text-white py-2">
@@ -35,6 +63,26 @@
             <form method="POST" action="{{ route('diagnosa.proses') }}" id="diagnosisForm">
                 @csrf
                 
+                <!-- Info jika ada gejala sebelumnya -->
+                @if(!empty($selectedFromSession) && count($selectedFromSession) > 0)
+                    <div class="alert alert-info py-2 mb-3">
+                        <div class="d-flex align-items-center">
+                            <i class="fas fa-history me-2"></i>
+                            <div>
+                                <small class="fw-bold">Gejala sebelumnya telah dipilih:</small>
+                                <div class="mt-1">
+                                    @foreach($gejala->whereIn('kode', $selectedFromSession) as $g)
+                                        <span class="badge bg-info text-dark me-1 mb-1">
+                                            {{ $g->kode }}: {{ $g->nama }}
+                                        </span>
+                                    @endforeach
+                                </div>
+                                <small class="d-block mt-1">Anda bisa menambah atau mengurangi gejala</small>
+                            </div>
+                        </div>
+                    </div>
+                @endif
+
                 <!-- Category Navigation -->
                 <div class="mb-3">
                     <div class="d-flex flex-wrap gap-1 mb-2">
@@ -77,16 +125,23 @@
                                     
                                     <div class="symptoms-list">
                                         @foreach($gejalaKategori as $g)
+                                            @php
+                                                $isChecked = in_array($g->kode, $selectedFromSession ?? []);
+                                            @endphp
                                             <div class="form-check symptom-item mb-1">
                                                 <input class="form-check-input symptom-checkbox" 
                                                        type="checkbox" 
                                                        name="gejala[]" 
                                                        id="{{ $g->kode }}" 
-                                                       value="{{ $g->kode }}">
+                                                       value="{{ $g->kode }}"
+                                                       {{ $isChecked ? 'checked' : '' }}>
                                                 <label class="form-check-label" for="{{ $g->kode }}">
                                                     <small>
                                                         <span class="badge bg-secondary me-1">{{ $g->kode }}</span>
                                                         {{ $g->nama }}
+                                                        @if($isChecked)
+                                                            <span class="badge bg-success ms-1">✓</span>
+                                                        @endif
                                                     </small>
                                                 </label>
                                             </div>
@@ -102,17 +157,23 @@
                 <div class="border-top pt-3 mt-2">
                     <div class="d-flex justify-content-between align-items-center">
                         <div>
-                            <button type="button" class="btn btn-sm btn-outline-secondary me-1" onclick="resetForm()">
-                                <i class="fas fa-redo"></i> Reset
-                            </button>
+                            <a href="{{ route('diagnosa.reset') }}" class="btn btn-sm btn-outline-secondary me-1">
+                                <i class="fas fa-redo"></i> Mulai Baru
+                            </a>
                             <button type="button" class="btn btn-sm btn-outline-warning" onclick="selectAll()">
                                 <i class="fas fa-check-double"></i> Pilih Semua
                             </button>
                         </div>
                         <div>
-                            <button type="submit" class="btn btn-primary btn-sm px-3" id="submitBtn">
-                                <i class="fas fa-search me-1"></i> Analisis
-                            </button>
+                            @if(session('persentase') && session('persentase') < 70)
+                                <button type="submit" class="btn btn-warning btn-sm px-3" id="submitBtn">
+                                    <i class="fas fa-search-plus me-1"></i> Analisis dengan Gejala Tambahan
+                                </button>
+                            @else
+                                <button type="submit" class="btn btn-primary btn-sm px-3" id="submitBtn">
+                                    <i class="fas fa-search me-1"></i> Analisis
+                                </button>
+                            @endif
                         </div>
                     </div>
                 </div>
@@ -124,7 +185,13 @@
     <div class="alert alert-light border p-2 mb-3">
         <small>
             <i class="fas fa-lightbulb text-warning me-1"></i>
-            <strong>Tips:</strong> Pilih semua gejala yang sesuai untuk hasil lebih akurat. Minimal pilih 1 gejala.
+            <strong>Tips:</strong> 
+            @if(session('persentase') && session('persentase') < 70)
+                <strong class="text-warning">Diagnosis membutuhkan minimal 70% akurasi.</strong> 
+                Pilih gejala tambahan yang sesuai untuk hasil lebih akurat.
+            @else
+                Pilih semua gejala yang sesuai untuk hasil lebih akurat. Minimal pilih 1 gejala.
+            @endif
         </small>
     </div>
 </div>
@@ -135,10 +202,7 @@
     const counter = document.getElementById('selectedCount');
     const submitBtn = document.getElementById('submitBtn');
     
-    checkboxes.forEach(checkbox => {
-        checkbox.addEventListener('change', updateCounter);
-    });
-    
+    // Function to update counter
     function updateCounter() {
         const checked = document.querySelectorAll('.symptom-checkbox:checked').length;
         counter.textContent = checked;
@@ -157,12 +221,18 @@
         submitBtn.disabled = (checked === 0);
     }
     
-    function resetForm() {
-        if(confirm('Reset semua pilihan gejala?')) {
-            checkboxes.forEach(cb => cb.checked = false);
-            updateCounter();
-        }
-    }
+    // Auto-check previously selected symptoms
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initialize counter with pre-checked items
+        updateCounter();
+        
+        // Mark pre-checked items
+        checkboxes.forEach(checkbox => {
+            if(checkbox.checked) {
+                checkbox.closest('.symptom-item').classList.add('checked');
+            }
+        });
+    });
     
     function selectAll() {
         checkboxes.forEach(cb => cb.checked = true);
@@ -178,15 +248,17 @@
         }
     });
     
-    // Initialize
-    updateCounter();
+    // Event listeners for checkboxes
+    checkboxes.forEach(checkbox => {
+        checkbox.addEventListener('change', updateCounter);
+    });
 </script>
 
 <style>
     .symptoms-list {
-    min-height: auto; /* Biarkan natural height */
-    padding-right: 5px;
-}
+        min-height: auto;
+        padding-right: 5px;
+    }
     
     .symptom-item {
         padding: 3px 5px;
@@ -200,9 +272,10 @@
     
     .symptom-item.checked {
         background-color: #e7f7ef;
+        border-left: 3px solid #10b981;
     }
     
-    .symptom-item.checked .badge {
+    .symptom-item.checked .badge.bg-secondary {
         background-color: #10b981 !important;
     }
     
@@ -216,23 +289,23 @@
         cursor: pointer;
     }
     
-    .symptoms-list::-webkit-scrollbar {
-        width: 4px;
-    }
-    
-    .symptoms-list::-webkit-scrollbar-track {
-        background: #f1f1f1;
-        border-radius: 2px;
-    }
-    
-    .symptoms-list::-webkit-scrollbar-thumb {
-        background: #c1c1c1;
-        border-radius: 2px;
+    .form-check-input:checked {
+        background-color: #10b981;
+        border-color: #10b981;
     }
     
     #submitBtn:disabled {
         opacity: 0.5;
         cursor: not-allowed;
+    }
+    
+    /* Progress bar in warning */
+    .progress {
+        background-color: #ffeaa7;
+    }
+    
+    .progress-bar {
+        border-radius: 4px;
     }
 </style>
 @endsection
